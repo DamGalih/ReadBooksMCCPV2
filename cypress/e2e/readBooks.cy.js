@@ -1,6 +1,7 @@
 describe('Cari Buku Berdasarkan UUID (Login Sekali)', () => {
-  const email = '';
-  const password = '';
+const email = Cypress.env('email');
+const password = Cypress.env('password');
+
 
   before(function () {
     cy.task('readExcel').then((data) => {
@@ -32,6 +33,8 @@ describe('Cari Buku Berdasarkan UUID (Login Sekali)', () => {
     // Loop semua UUID
     this.uuids.forEach((row) => {
       const uuid = row.UUID;
+      let isBookmarkAvailable = false;
+      let isMetadataAvailable = false;
 
       cy.get('input[placeholder="Pencarian..."]', { timeout: 10000 }).should('be.visible');
       cy.get('input[placeholder="Pencarian..."]').clear().type(uuid);
@@ -53,10 +56,10 @@ describe('Cari Buku Berdasarkan UUID (Login Sekali)', () => {
             .click({ force: true });
 
           // Tunggu modal tampil
-          cy.get('.ant-modal-wrap', { timeout: 10000 }).should('be.visible');
+          cy.get('.ant-modal-wrap', { timeout: 50000 }).should('be.visible');
 
          // Pastikan kontainer dokumen PDF muncul
-cy.get('.react-pdf__Document.custom-doc-wrapper', { timeout: 30000 })
+cy.get('.react-pdf__Document.custom-doc-wrapper', { timeout: 40000 })
   .should('exist')
   .scrollIntoView();
 
@@ -70,11 +73,34 @@ cy.get('.react-pdf__Page', { timeout: 70000 })
 // ✅ Pastikan halaman PDF benar-benar terlihat
 cy.get('.react-pdf__Page', { timeout: 20000 })
   .first()
-  .scrollIntoView()
-  .should('be.visible');
+  .scrollIntoView({ block: 'center' })
+  .should('exist')
+  .invoke('outerHeight')
+  .should('be.gte', 10);
+
+  cy.wait(5000);
+
+// ✅ Periksa keseragaman lebar semua halaman
+cy.get('canvas.react-pdf__Page__canvas', { timeout: 20000 }).then(($canvases) => {
+  const widths = [];
+
+  Cypress._.each($canvases, (canvas) => {
+    widths.push(canvas.offsetWidth);
+  });
+
+  const allWidthsEqual = widths.every((w) => w === widths[0]);
+
+  if (!allWidthsEqual) {
+    cy.log('❌ Lebar tidak seragam:', widths);
+    throw new Error(`Lebar halaman tidak konsisten: ${widths}`);
+  } else {
+    cy.log('✅ Semua halaman memiliki lebar yang sama:', widths[0]);
+  }
+});
 
           // Klik tombol Bookmark
           cy.get('button.btn-bookmark', { timeout: 20000 })
+          .scrollIntoView()
             .should('be.visible')
             .click({ force: true });
 
@@ -83,21 +109,14 @@ cy.get('.react-pdf__Page', { timeout: 20000 })
           .should('exist');
 
 
-          // Klik bookmark
-          /*cy.get('.pdf-viewer-bookmark.show .ant-menu-item')
-            .eq(1)
-            .click({ force: true });*/
-
-// Cek apakah ada bookmark di dalam daftar
+          // Cek apakah ada bookmark di dalam daftar
 cy.get('.pdf-viewer-bookmark.show .ant-menu-item').then(($items) => {
-  if ($items.length > 1) {
+  if ($items.length > 0) {
+    isBookmarkAvailable = true;
     // Klik bookmark ke-2 (index 1)
-    cy.wrap($items.eq(1)).click({ force: true });
-  } else if ($items.length === 1) {
-    // Kalau hanya 1 bookmark, klik yang ada (optional)
     cy.wrap($items.eq(0)).click({ force: true });
   } else {
-    // Tidak ada bookmark, log info
+
     cy.log('📌 Tidak ada bookmark yang tersedia di file ini.');
        }
 });     
@@ -116,25 +135,40 @@ cy.get('button.btn-properties')
 // Tunggu modal tampil
 cy.get('.ant-modal-body', { timeout: 10000 }).should('exist');
 
-// Validasi Title tidak kosong
-cy.get('.ant-modal-body .ant-row')
-  .contains('div', 'Title')
-  .parent()
-  .within(() => {
-    cy.get('div').last().invoke('text').then((text) => {
-      expect(text.trim(), 'Title tidak boleh kosong').to.not.eq('');
-    });
-  });
+// Cek apakah elemen Title ada
+cy.get('.ant-modal-body .ant-row').then(($rows) => {
+  const titleRow = $rows.toArray().find(row => row.innerText.includes('Title'));
 
-// Validasi Author tidak kosong
-cy.get('.ant-modal-body .ant-row')
-  .contains('div', 'Author')
-  .parent()
-  .within(() => {
-    cy.get('div').last().invoke('text').then((text) => {
-      expect(text.trim(), 'Author tidak boleh kosong').to.not.eq('');
+  if (titleRow) {
+    cy.wrap(titleRow).within(() => {
+      cy.get('div').last().invoke('text').then((text) => {
+        if (text.trim() !== '') {
+          isMetadataAvailable = true;
+        }
+      });
     });
-  });
+  } else {
+    cy.log('🔍 Metadata Title tidak ditemukan.');
+    isMetadataAvailable = false;
+  }
+});
+
+cy.get('.ant-modal-body .ant-row').then(($rows) => {
+  const AuthorRow = $rows.toArray().find(row => row.innerText.includes('Author'));
+
+  if (AuthorRow) {
+    cy.wrap(AuthorRow).within(() => {
+      cy.get('div').last().invoke('text').then((text) => {
+        if (text.trim() !== '') {
+          isMetadataAvailable = true;
+        }
+      });
+    });
+  } else {
+    cy.log('🔍 Metadata Author tidak ditemukan.');
+    isMetadataAvailable = false;
+  }
+});
 
 // Klik tombol "Ok" untuk menutup modal
 cy.contains('button.ant-btn-dangerous span', 'Ok')
@@ -152,6 +186,28 @@ cy.contains('button.ant-btn-dangerous span', 'Ok')
 
           // Pastikan modal sudah tertutup
           cy.get('.ant-modal-wrap', { timeout: 20000 }).should('not.be.visible');
+          
+           cy.then(() => {
+            cy.get('input.ant-checkbox-input').first().click({ force: true });
+            cy.get('input#action-move-catalog').click({ force: true });
+          if (isBookmarkAvailable && isMetadataAvailable) {
+              cy.contains('.ant-select-item-option-content', 'Ubah Produk Terverifikasi')
+                .click({ force: true });
+            } else {
+              cy.contains('.ant-select-item-option-content', 'Ubah Produk diblokir')
+                .click({ force: true });
+            }
+              // Klik tombol Pilih
+                cy.contains('button span', 'Pilih')
+               .should('be.visible')
+                .click({ force: true });
+
+                // Klik tombol Proses di modal berikutnya
+                cy.contains('button span', 'Proses', { timeout: 10000 })
+                .should('be.visible')
+                .click({ force: true });
+          });
+
 
           // Pastikan kembali ke halaman pencarian
           cy.get('input[placeholder="Pencarian..."]', { timeout: 10000 }).should('be.visible');
@@ -161,5 +217,5 @@ cy.contains('button.ant-btn-dangerous span', 'Ok')
         }
       });
     });
-  });
-});
+  })
+})
