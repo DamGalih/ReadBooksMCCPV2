@@ -1,6 +1,6 @@
 describe('Cari Buku Berdasarkan UUID (Login Sekali)', () => {
-  const email = 'adam.galih@aksaramaya.com';
-  const password = 'Adam123456';
+  const email = '';
+  const password = '';
 
   before(function () {
     cy.task('readExcel').then((data) => {
